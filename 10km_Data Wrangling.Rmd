@@ -1,0 +1,98 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+#installing packages
+
+install.packages("tidyverse")
+install.packages("dplyr")
+install.packages("ggplot2")
+
+library(tidyverse, dplyr, ggplot2)
+```
+```{r}
+#Data wrangling
+
+IND2018 = IND10 %>%
+  select(buffer_distance, fshng_h)
+
+IND2018_PAA = PAA_IND10 %>%
+  select(buffer_distance, fshng_h)
+
+#combining effort within PAA and in buffer rings
+IND10km_ALL = bind_rows(IND10km, IND10km_PAA)
+
+#summing fshng_h by 10km bin
+IND10_grouped = IND10km_ALL %>%
+  group_by(buffer_distance) %>%
+  summarise(ttl_fshng_h = sum(fshng_h))
+
+#...REPEAT ALL STEPS for PHL and THA
+
+#PHL
+PHL10km = PHL10xlsx %>%
+  select(buffer_distance, fshng_h)
+PHL10km_PAA = PAA_PHL10 %>%
+  select(buffer_distance, fshng_h)
+PHL10km_ALL = bind_rows(PHL10km, PHL10km_PAA)
+
+PHL10_grouped = PHL10km_ALL %>%
+  group_by(buffer_distance) %>%
+  summarise(ttl_fshng_h = sum(fshng_h))
+
+#THA
+THA10km = THA10 %>%
+  select(buffer_distance, fshng_h)
+THA10km_PAA = PAA_THA10 %>%
+  select(buffer_distance, fshng_h)
+THA10km_ALL = bind_rows(THA10km, THA10km_PAA)
+
+THA10_grouped = THA10km_ALL %>%
+  group_by(buffer_distance) %>%
+  summarise(ttl_fshng_h = sum(fshng_h))
+
+```
+```{r}
+#Data Wrangling - getting a 3-year average of ttl_fshng_h per buffer zone
+
+IND_3yr = bind_rows(IND2018_grouped, IND2019_grouped, IND2020_grouped)
+
+view(IND_3yr)
+
+IND_3yr_avg = IND_3yr %>%
+  group_by(buffer_distance) %>%
+  summarise(average_fshng_h = mean(ttl_fshng_h))
+
+view(IND_3yr_avg)
+
+```
+
+```{r}
+#Plotting fishing effort in bar charts
+
+
+p=ggplot(data=PHL10_grouped, aes(x=factor(buffer_distance), y=ttl_fshng_h)) +
+  geom_bar(stat="identity", fill = "coral", width = 0.5) + theme_minimal()
+p
+
+t=ggplot(data=THA10_grouped, aes(x=factor(buffer_distance), y=ttl_fshng_h)) + geom_bar(stat="identity", fill = "coral", width = 0.5) + theme_minimal()
+t
+
+i=ggplot(data=IND10_grouped, aes(x=factor(buffer_distance), y=ttl_fshng_h)) +
+  geom_bar(stat="identity", fill = "coral", width = 0.5) + theme_minimal()
+i
+
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.

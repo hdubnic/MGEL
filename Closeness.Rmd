@@ -1,0 +1,157 @@
+---
+title: "Closeness"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+#Troubleshooting the space issue
+#Sys.setenv('R_MAX_VSIZE'=32000000000)
+
+#library(usethis) 
+#usethis::edit_r_environ()
+
+```
+
+```{r}
+# Load packages
+library(tidyverse) # for general data wrangling and plotting
+library(furrr) # for parallel operations on lists
+library(lubridate) # for working with dates
+library(sf) # for vector data 
+library(raster) # for working with rasters
+library(maps) # additional helpful mapping packages
+library(maptools)
+library(rgeos)
+library(xlsx)
+library(openxlsx)
+
+
+# World polygons from the maps package
+#world_shp <- sf::st_as_sf(maps::map("world", plot = FALSE, fill = TRUE))
+
+# Load EEZ polygons - DONT NEED THIS BC MAPPING IN ARCPRO
+#eezs <- read_sf('~/data/shapefiles/World_EEZ_v10_20180221/', layer = 'eez_v10') %>% 
+  #filter(Pol_type == '200NM') # select the 200 nautical mile polygon layer
+```
+
+```{r}
+# IMPORTING DATA
+
+# Specify location of data directory
+data_dir <- '~/Users/hdubniczki/Desktop/RFiles/Closeness/GFW_2017'
+
+# Create dataframe of filenames dates and filter to date range of interest
+effort_files <- tibble(
+  file = list.files(path = "/Users/hdubniczki/Desktop/RFiles/Closeness/GFW_2017/fleet-daily-csvs-100-v2-2017",
+                            recursive = TRUE,
+                            pattern = "\\.csv$",
+                            full.names = TRUE),
+  date = ymd(str_extract(file, 
+                         pattern = '[[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2}')))
+
+
+#ONLY NEED THE FOLLOWING IF YOURE WORKING WITH THE FULL DATASET
+# Generate a vector of dates of interest using ymd from lubridate
+#effort_dates <- seq(ymd('2016-01-01'), ymd('2016-12-31'), by='days')
+
+# Filter to files within our date range of interest
+#effort_files <- filter(effort_files, date %in% effort_dates)
+
+# Read in data (uncomment to read in parallel)
+plan(multicore) # Windows users should change this to plan(multisession)
+effort_df <- furrr::future_map_dfr(effort_files$file, .f = read_csv)
+
+head(effort_df, 10)
+
+# Add date information - IDK IF I NEED THIS OR NOT
+effort_df <- effort_df %>% 
+  mutate(year  = year(date),
+         month = month(date))
+```
+
+```{r}
+# ADJUSTING DATA RESOLUTION - I think this is the problem area...Ana suggested X instead of / by 100. 
+
+# Specify new (lower) resolution in degrees for aggregating data
+res <- 0.25
+
+# Transform data across all fleets and geartypes
+effort_df <- effort_df %>% 
+  mutate(
+     #convert from hundreths of a degree to degrees
+    cell_ll_lat = cell_ll_lat * 100, 
+    cell_ll_lon = cell_ll_lon * 100,
+     #calculate new lat lon bins with desired resolution
+    cell_ll_lat = floor(cell_ll_lat/res) * res + 0.5 * res, 
+    cell_ll_lon = floor(cell_ll_lon/res) * res + 0.5 * res)
+
+# Re-aggregate the data to 0.25 degrees
+effort_df <- effort_df %>% 
+  group_by(date, year, month, cell_ll_lon, cell_ll_lat, flag, geartype) %>% 
+  summarize(fishing_hours = sum(fishing_hours, na.rm = T),
+            mmsi_present  = sum(mmsi_present, na.rm = T))
+
+```
+
+```{r}
+# MAPPING FISHING EFFORT
+
+# Aggregate data across all fleets and geartypes
+effort_all <- effort_df %>% 
+  group_by(lon_bin,lat_bin) %>% 
+  summarize(fishing_hours = sum(fishing_hours, na.rm = T),
+            log_fishing_hours = log10(sum(fishing_hours, na.rm = T))) %>% 
+  ungroup() %>% 
+  mutate(log_fishing_hours = ifelse(log_fishing_hours <= 1, 1, log_fishing_hours),
+         log_fishing_hours = ifelse(log_fishing_hours >= 5, 5, log_fishing_hours)) %>% 
+  filter(fishing_hours >= 24)
+
+# Aggregate data by geartype across all fleets 
+effort_gear <- effort_df %>% 
+  group_by(lon_bin,lat_bin, geartype) %>% 
+  summarize(fishing_hours = sum(fishing_hours, na.rm = T),
+            log_fishing_hours = log10(sum(fishing_hours, na.rm = T))) %>% 
+  ungroup() %>% 
+  mutate(log_fishing_hours = ifelse(log_fishing_hours <= 1, 1, log_fishing_hours),
+         log_fishing_hours = ifelse(log_fishing_hours >= 5, 5, log_fishing_hours)) %>% 
+  filter(fishing_hours >= 24)
+
+# Aggregate data by geartype across all fleets 
+effort_flag <- effort_df %>%
+  filter(flag %in% c('TWN')) %>% 
+  group_by(lon_bin, lat_bin, flag) %>% 
+  summarize(fishing_hours = sum(fishing_hours, na.rm = T),
+            log_fishing_hours = log10(sum(fishing_hours, na.rm = T))) %>% 
+  ungroup() %>% 
+  mutate(log_fishing_hours = ifelse(log_fishing_hours <= 1, 1, log_fishing_hours),
+         log_fishing_hours = ifelse(log_fishing_hours >= 5, 5, log_fishing_hours)) %>% 
+  filter(fishing_hours >= 24)
+
+# ...decide if you map here or in arcpro
+
+```
+
+```{r}
+#Loading + Merging CSV files
+
+#files2017 <- list.files(path = "/Users/hdubniczki/Desktop/RFiles/Closeness/GFW_2017/fleet-daily-csvs-100-v2-2017",
+                           # recursive = TRUE,
+                           # pattern = "\\.csv$",
+                           # full.names = TRUE)
+
+#merged2017data <- read_csv(files2017) %>%
+ # bind_rows()
+
+
+# Export excel file 
+write.xlsx(effort_df, file = "2017_GFW_data.xlsx")
+
+#df <- readr::read_csv(list_of_files, id = "file_name")
+
+```
+
+
